@@ -66,9 +66,8 @@ function App() {
   return (
     <ChakraProvider>
       <main>
-        <h1>Command</h1>
-        <StatelyCommand />
-        {/* <Command
+        {/* <StatelyCommand /> */}
+        <Command
           onCommand={(selectedItem) => {
             console.log('selected', selectedItem);
             setItems(
@@ -78,7 +77,7 @@ function App() {
             );
           }}
           items={items}
-        /> */}
+        />
       </main>
     </ChakraProvider>
   );

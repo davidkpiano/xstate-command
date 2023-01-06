@@ -254,7 +254,16 @@ export const createCommandMachine = (input: {
         }),
       },
       change: {
-        actions: 'onChange',
+        actions: [
+          assign({
+            selectedIndex: (ctx, ev) => {
+              return getValidItems(ctx).findIndex(
+                (item) => item.value === ev.item.value
+              );
+            },
+          }),
+          'onChange',
+        ],
       },
       'items.update': {
         actions: assign<
@@ -289,7 +298,7 @@ export function getInputAriaProperties(ctx: CommandContext) {
     'aria-autocomplete': 'list' as const,
     'aria-controls': ctx.listId,
     'aria-labelledby': ctx.labelId,
-  };
+  } as const;
 }
 
 export function getListAriaProperties(ctx: CommandContext) {
