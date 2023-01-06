@@ -238,8 +238,6 @@ export const createCommandMachine = (input: {
                 if (item) {
                   x.raise({ type: 'change', item });
                   input.onChange(item);
-                  // const event = new Event(SELECT_EVENT);
-                  // item.dispatchEvent(event);
                 }
               }
             }
