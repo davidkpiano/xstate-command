@@ -1,4 +1,4 @@
-import { ExtractEvent, createMachine } from 'xstate';
+import { ExtractEvent, assign, createMachine } from 'xstate';
 import { capture } from './capture';
 import { commandScore } from './commandScore';
 
@@ -15,7 +15,7 @@ export interface Group {
 export interface CommandContext {
   allGroups: Group[];
   ids: Record<string, Item>;
-  selected: string | undefined;
+  selectedIndex: number;
   search: string;
   items: Item[];
   loop: boolean;
@@ -28,6 +28,9 @@ export type CommandEvents =
   | { type: 'next'; event: React.KeyboardEvent }
   | { type: 'prev'; event: React.KeyboardEvent }
   | { type: 'updateSelectedToIndex' }
+  | { type: 'search'; value: string }
+  | { type: 'change'; item: Item }
+  | { type: 'items.update'; items: Item[] }
   | (React.KeyboardEvent & { type: 'keydown' });
 
 export interface ScoredItem extends Item {
@@ -43,7 +46,7 @@ function score(
 }
 
 export function getSelectedItem(ctx: CommandContext) {
-  return ctx.items.find((item) => item.value === ctx.selected);
+  return getValidItems(ctx)[ctx.selectedIndex];
 }
 
 export function getValidItems(ctx: CommandContext): ScoredItem[] {
@@ -64,73 +67,41 @@ const updateSelectedToIndex = (index: number) =>
     if (item) {
       x.assign({
         selected: item.value,
+        selectedIndex: index,
       });
     }
   });
 
 function updateSelectedByChange(ctx: CommandContext, change: 1 | -1) {
-  const selectedItem = getSelectedItem(ctx);
-  const items = getValidItems(ctx);
-  const index = items.findIndex((item) => item.value === selectedItem?.value);
+  return capture((ctx: CommandContext, e, x) => {
+    const selectedItem = getSelectedItem(ctx);
+    const items = getValidItems(ctx);
+    const index = items.findIndex((item) => item.value === selectedItem?.value);
+    let selectedIndex = ctx.selectedIndex;
 
-  // Get item at this index
-  let newSelectedItem = items[index + change];
+    // Get item at this index
+    let newSelectedItem = items[index + change];
 
-  if (ctx.loop) {
-    newSelectedItem =
-      index + change < 0
-        ? items[items.length - 1]
-        : index + change === items.length
-        ? items[0]
-        : items[index + change];
-  }
-
-  if (newSelectedItem) {
-    ctx.selected = newSelectedItem.value;
-  }
-
-  console.log('selected', ctx.selected);
-}
-
-function updateSelectedToGroup(ctx: CommandContext, change: 1 | -1) {
-  const selectedItem = getSelectedItem(ctx)!;
-  const groupKeys = ctx.allGroups.map((group) => group.name);
-  const items = getValidItems(ctx);
-  let groupKey = groupKeys.find((key) => {
-    const entries = ctx.allGroups.find((group) => group.name === key);
-    return entries?.items.find(
-      (groupItem) => groupItem.value === selectedItem.value
-    );
-  });
-  let item: Item | undefined = undefined;
-
-  while (groupKey && !item) {
-    groupKey =
-      change > 0
-        ? groupKeys[groupKeys.indexOf(groupKey) + 1]
-        : groupKeys[groupKeys.indexOf(groupKey) - 1];
-
-    if (!groupKey) {
-      break;
+    if (ctx.loop) {
+      selectedIndex =
+        selectedIndex + change < 0
+          ? items.length - 1
+          : selectedIndex + change === items.length
+          ? 0
+          : selectedIndex + change;
+      newSelectedItem =
+        index + change < 0
+          ? items[items.length - 1]
+          : index + change === items.length
+          ? items[0]
+          : items[index + change];
     }
 
-    const group = ctx.allGroups.find((group) => group.name === groupKey);
-    const groupItems = group
-      ? items.filter(
-          (item) =>
-            !item.disabled &&
-            group.items.find((groupItem) => groupItem.value === item.value)
-        )
-      : [];
-    console.log('group', groupItems);
-    item = groupItems[0];
-  }
-
-  if (item) {
-    ctx.selected = item.value;
-  } else {
-    updateSelectedByChange(ctx, change);
-  }
+    x.assign({
+      selected: newSelectedItem?.value,
+      selectedIndex,
+    });
+  });
 }
 
 const last = capture((ctx: CommandContext, e, x) => {
@@ -146,10 +117,11 @@ const next = capture(
       x.capture(last);
     } else if (e.event.altKey) {
       // Next group
-      updateSelectedToGroup(ctx, 1);
+      // TODO: implement this a different way
+      // updateSelectedToGroup(ctx, 1);
     } else {
       // Next item
-      updateSelectedByChange(ctx, 1);
+      x.capture(updateSelectedByChange(ctx, 1));
     }
   }
 );
@@ -163,10 +135,11 @@ const prev = capture(
       x.capture(updateSelectedToIndex(0));
     } else if (e.event.altKey) {
       // Previous group
-      updateSelectedToGroup(ctx, -1);
+      // TODO: implement this a different way
+      // updateSelectedToGroup(ctx, -1);
     } else {
       // Previous item
-      updateSelectedByChange(ctx, -1);
+      x.capture(updateSelectedByChange(ctx, -1));
     }
   }
 );
@@ -195,7 +168,7 @@ export const createCommandMachine = (input: {
         },
       ],
       ids: {} as Record<string, Item>,
-      selected: 'one', // todo: change to value
+      selectedIndex: 0,
       search: '',
       items: input.items,
       loop: true,
@@ -263,7 +236,7 @@ export const createCommandMachine = (input: {
                 e.preventDefault();
                 const item = getSelectedItem(ctx);
                 if (item) {
-                  console.log('enter item', item);
+                  x.raise({ type: 'change', item });
                   input.onChange(item);
                   // const event = new Event(SELECT_EVENT);
                   // item.dispatchEvent(event);
@@ -275,20 +248,32 @@ export const createCommandMachine = (input: {
           }
         }),
       },
+      search: {
+        actions: assign({
+          search: (_, e) => e.value,
+          selected: (ctx) => getValidItems(ctx)[0]?.value,
+          selectedIndex: 0,
+        }),
+      },
       change: {
-        actions: (
-          ctx: CommandContext,
-          e: { type: 'change'; value: string }
-        ) => {
-          ctx.search = e.value;
-          ctx.selected = getValidItems(ctx)[0].value;
-        },
+        actions: 'onChange',
+      },
+      'items.update': {
+        actions: assign({
+          items: (_, e) => e.items,
+          search: '',
+          selectedIndex: 0,
+        }),
       },
     },
   });
 
 export function getItemAriaProperties(item: Item, ctx: CommandContext) {
-  const isSelected = item.value === ctx.selected;
+  // const isSelected = item.value === ctx.selected;
+  const isSelected =
+    getValidItems(ctx).findIndex(
+      (validItem) => item.value === validItem.value
+    ) === ctx.selectedIndex;
   return {
     'aria-selected': isSelected || undefined,
     'aria-disabled': item.disabled || undefined,
@@ -296,26 +281,11 @@ export function getItemAriaProperties(item: Item, ctx: CommandContext) {
   };
 }
 
-export function getGroupAriaProperties(name: string, ctx: CommandContext) {
-  const entries = ctx.allGroups
-    .find((group) => group.name === name)
-    ?.items.map((item) => item.value);
-  const items = entries
-    ? ctx.items.filter((item) => entries.includes(item.value))
-    : [];
-  const selectedItems = items.filter((item) => item.value === ctx.selected);
-  const disabledItems = items.filter((item) => item.disabled);
-
-  return {
-    role: 'presentation',
-  };
-}
-
 export function getInputAriaProperties(ctx: CommandContext) {
   return {
     autoComplete: 'off',
     role: 'combobox',
-    'aria-autocomplete': 'list',
+    'aria-autocomplete': 'list' as const,
     'aria-controls': ctx.listId,
     'aria-labelledby': ctx.labelId,
   };
