@@ -27,6 +27,7 @@ export interface CommandContext {
 export type CommandEvents =
   | { type: 'next'; event: React.KeyboardEvent }
   | { type: 'prev'; event: React.KeyboardEvent }
+  | { type: 'last' }
   | { type: 'updateSelectedToIndex' }
   | { type: 'search'; value: string }
   | { type: 'change'; item: Item }
@@ -183,9 +184,9 @@ export const createCommandMachine = (input: {
       prev: {
         actions: prev,
       },
-      updateSelectedToIndex: {
-        actions: updateSelectedToIndex,
-      },
+      // updateSelectedToIndex: {
+      //   actions: updateSelectedToIndex,
+      // },
       last: {
         actions: last,
       },
@@ -247,9 +248,8 @@ export const createCommandMachine = (input: {
         }),
       },
       search: {
-        actions: assign({
+        actions: assign<CommandContext, ExtractEvent<CommandEvents, 'search'>>({
           search: (_, e) => e.value,
-          selected: (ctx) => getValidItems(ctx)[0]?.value,
           selectedIndex: 0,
         }),
       },
@@ -257,7 +257,10 @@ export const createCommandMachine = (input: {
         actions: 'onChange',
       },
       'items.update': {
-        actions: assign({
+        actions: assign<
+          CommandContext,
+          ExtractEvent<CommandEvents, 'items.update'>
+        >({
           items: (_, e) => e.items,
           search: '',
           selectedIndex: 0,
